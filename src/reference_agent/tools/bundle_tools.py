@@ -196,6 +196,15 @@ def write_concept_doc(
                     "concept_id": concept_id,
                 }
 
+    # Keep the existing file's quoting of timestamps so that a rewrite does
+    # not show quote-only diffs.
+    if path.exists():
+        try:
+            previous = OKFDocument.parse(path.read_text(encoding="utf-8"))
+            doc.plain_timestamps = previous.plain_timestamps
+        except OKFDocumentError:
+            pass
+
     path.parent.mkdir(parents=True, exist_ok=True)
     text = doc.serialize()
     path.write_text(text, encoding="utf-8")

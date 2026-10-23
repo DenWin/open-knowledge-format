@@ -14,8 +14,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 import yaml
@@ -24,6 +25,24 @@ import yaml
 REQUIRED_FRONTMATTER_KEYS = ("type",)
 
 _FRONTMATTER_DELIM = "---"
+
+_TIMESTAMP_TAG = "tag:yaml.org,2002:timestamp"
+_TIMESTAMP_RE = next(
+    regexp
+    for resolvers in yaml.SafeLoader.yaml_implicit_resolvers.values()
+    for tag, regexp in resolvers
+    if tag == _TIMESTAMP_TAG
+)
+_RESOLVERS_WITHOUT_TIMESTAMP = {
+    ch: [(tag, regexp) for tag, regexp in resolvers if tag != _TIMESTAMP_TAG]
+    for ch, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+# OKF v0.3 §5: the two RFC 3339 forms of a timestamp.
+_FULL_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_DATE_TIME_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})"
+)
 
 
 class _Loader(yaml.SafeLoader):
@@ -37,10 +56,48 @@ class _Loader(yaml.SafeLoader):
     """
 
 
-_Loader.yaml_implicit_resolvers = {
-    ch: [(tag, regexp) for tag, regexp in resolvers if tag != "tag:yaml.org,2002:timestamp"]
-    for ch, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
-}
+_Loader.yaml_implicit_resolvers = _RESOLVERS_WITHOUT_TIMESTAMP
+
+
+class _Dumper(yaml.SafeDumper):
+    """SafeDumper that writes a timestamp-like string the way the file had it.
+
+    SafeDumper quotes every string that looks like a timestamp, so rewriting
+    `at: 2026-06-30T14:00:00Z` gives `at: '2026-06-30T14:00:00Z'`: a
+    quote-only diff. Values in `plain_timestamps` stay plain; the rest are
+    quoted. Both forms read back as the same string.
+    """
+
+    plain_timestamps: frozenset[str] = frozenset()
+
+
+_Dumper.yaml_implicit_resolvers = _RESOLVERS_WITHOUT_TIMESTAMP
+
+
+def _represent_str(dumper: _Dumper, value: str) -> yaml.ScalarNode:
+    style = None
+    if _TIMESTAMP_RE.match(value) and value not in dumper.plain_timestamps:
+        style = "'"
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
+
+
+_Dumper.add_representer(str, _represent_str)
+
+
+def _find_plain_timestamps(node: yaml.Node | None) -> set[str]:
+    """Timestamp-like scalars that the YAML wrote without quotes."""
+    if isinstance(node, yaml.ScalarNode):
+        if node.style is None and _TIMESTAMP_RE.match(node.value):
+            return {node.value}
+        return set()
+    found: set[str] = set()
+    if isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            found |= _find_plain_timestamps(item)
+    elif isinstance(node, yaml.MappingNode):
+        for key, value in node.value:
+            found |= _find_plain_timestamps(key) | _find_plain_timestamps(value)
+    return found
 
 
 class OKFDocumentError(ValueError):
@@ -51,9 +108,17 @@ class OKFDocumentError(ValueError):
 class OKFDocument:
     frontmatter: dict[str, Any] = field(default_factory=dict)
     body: str = ""
+    # Timestamp-like values that the source file wrote without quotes.
+    # `serialize` keeps them plain so a rewrite does not change their quoting.
+    plain_timestamps: frozenset[str] = field(
+        default_factory=frozenset, compare=False, repr=False
+    )
 
     @classmethod
     def parse(cls, text: str) -> "OKFDocument":
+        # Some editors write a UTF-8 BOM. Drop it so that the opening `---`
+        # is found. `splitlines` already treats CRLF and LF the same.
+        text = text.removeprefix("\ufeff")
         lines = text.splitlines()
         if not lines or lines[0].strip() != _FRONTMATTER_DELIM:
             return cls(frontmatter={}, body=text)
@@ -69,6 +134,7 @@ class OKFDocument:
         fm_text = "\n".join(lines[1:end_idx])
         try:
             fm = yaml.load(fm_text, Loader=_Loader) or {}
+            plain = _find_plain_timestamps(yaml.compose(fm_text, Loader=_Loader))
         except yaml.YAMLError as e:
             raise OKFDocumentError(f"Invalid YAML in frontmatter: {e}") from e
         if not isinstance(fm, dict):
@@ -77,11 +143,12 @@ class OKFDocument:
         body = "\n".join(lines[end_idx + 1:])
         if body.startswith("\n"):
             body = body[1:]
-        return cls(frontmatter=fm, body=body)
+        return cls(frontmatter=fm, body=body, plain_timestamps=frozenset(plain))
 
     def serialize(self) -> str:
-        fm_text = yaml.safe_dump(
-            self.frontmatter, sort_keys=False, allow_unicode=True
+        dumper = type("_DocDumper", (_Dumper,), {"plain_timestamps": self.plain_timestamps})
+        fm_text = yaml.dump(
+            self.frontmatter, Dumper=dumper, sort_keys=False, allow_unicode=True
         ).rstrip()
         body = self.body if self.body.endswith("\n") else self.body + "\n"
         return f"{_FRONTMATTER_DELIM}\n{fm_text}\n{_FRONTMATTER_DELIM}\n\n{body}"
@@ -127,21 +194,42 @@ def trust_tier(frontmatter: dict[str, Any]) -> str:
     return "machine-confirmed"
 
 
-def is_stale(frontmatter: dict[str, Any], now: datetime | None = None) -> bool:
-    """Whether a concept is stale per `stale_after` (OKF v0.2 §5.5).
+def parse_timestamp(value: Any) -> datetime | None:
+    """Parse an OKF timestamp (OKF v0.3 §5), or return None if it is malformed.
 
-    A concept is stale when `now >= stale_after`. Returns False when
-    `stale_after` is absent, or is not an ISO 8601 datetime with an explicit
-    UTC offset: a date-only `2026-12-31` names a different instant in every
-    timezone, so it is ignored rather than guessed at.
+    A value is an RFC 3339 date-time with an offset, or a date only, which
+    means the start of that day in UTC. Quoted strings and YAML-native
+    `date`/`datetime` values are both accepted. A date-time without an
+    offset is malformed.
     """
-    raw = str(frontmatter.get("stale_after") or "")
-    if "T" not in raw:
-        return False
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else None
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+    if not isinstance(value, str):
+        return None
     try:
-        stale_after = datetime.fromisoformat(raw)
+        if _FULL_DATE_RE.fullmatch(value):
+            d = date.fromisoformat(value)
+            return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+        if _DATE_TIME_RE.fullmatch(value):
+            return datetime.fromisoformat(value.upper().replace("Z", "+00:00"))
     except ValueError:
+        return None
+    return None
+
+
+def is_stale(frontmatter: dict[str, Any], now: datetime | None = None) -> bool:
+    """Whether a concept is stale per `stale_after` (OKF v0.3 §5.5).
+
+    A concept is stale when `now >= stale_after`. An absent, null, or empty
+    `stale_after` is never stale. A value that does not parse is treated as
+    stale, because a consumer MUST NOT treat it as fresh.
+    """
+    raw = frontmatter.get("stale_after")
+    if raw is None or raw == "":
         return False
-    if stale_after.tzinfo is None:
-        return False
+    stale_after = parse_timestamp(raw)
+    if stale_after is None:
+        return True
     return (now or datetime.now(timezone.utc)) >= stale_after
