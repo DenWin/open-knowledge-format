@@ -21,7 +21,7 @@ from typing import Any
 
 import yaml
 
-# OKF v0.2 §11: `type` is the only always-required frontmatter key.
+# OKF v0.3 §4.1: `type` is the only always-required frontmatter key.
 REQUIRED_FRONTMATTER_KEYS = ("type",)
 
 _FRONTMATTER_DELIM = "---"
@@ -162,7 +162,7 @@ class OKFDocument:
 
 
 def normalize_verified(frontmatter: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return the `verified` events as a list (OKF v0.2 §5.2).
+    """Return the `verified` events as a list (OKF v0.3 §5.2).
 
     A single verifier MAY be written as one `{ by, at }` mapping without the
     list dash; consumers MUST treat a bare mapping as a one-element list.
@@ -177,14 +177,36 @@ def normalize_verified(frontmatter: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
-def trust_tier(frontmatter: dict[str, Any]) -> str:
-    """Derive a concept's trust tier from `verified` (OKF v0.2 §5.3).
+def _current_events(frontmatter: dict[str, Any]) -> list[dict[str, Any]]:
+    """The verification events that are current (OKF v0.3 §5.3).
 
-    - No `verified` key ⇒ "unverified".
-    - `verified` by non-`human:` actors only ⇒ "machine-confirmed".
-    - `verified` by a `human:<id>` actor ⇒ "human-reviewed".
+    An event is current when its `at` is at or after `generated.at`, or when
+    `generated` is absent. Events without both `by` and `at` are ignored. When
+    either timestamp cannot be parsed, the event is not current.
     """
-    events = normalize_verified(frontmatter)
+    events = [e for e in normalize_verified(frontmatter) if e.get("by") and e.get("at")]
+    generated = frontmatter.get("generated")
+    if not isinstance(generated, dict) or not generated.get("at"):
+        return events
+    generated_at = parse_timestamp(generated["at"])
+    if generated_at is None:
+        return []
+    current = []
+    for event in events:
+        at = parse_timestamp(event["at"])
+        if at is not None and at >= generated_at:
+            current.append(event)
+    return current
+
+
+def trust_tier(frontmatter: dict[str, Any]) -> str:
+    """Derive a concept's trust tier from current `verified` events (OKF v0.3 §5.3).
+
+    - No current event ⇒ "unverified".
+    - Current events from non-`human:` actors only ⇒ "machine-confirmed".
+    - A current event from a `human:<id>` actor ⇒ "human-reviewed".
+    """
+    events = _current_events(frontmatter)
     if not events:
         return "unverified"
     for event in events:

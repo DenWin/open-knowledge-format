@@ -108,7 +108,7 @@ def write_concept_doc(
 ) -> dict[str, Any]:
     """Write (or overwrite) the OKF markdown document for this concept.
 
-    `frontmatter` must include at minimum `type` (OKF v0.2 §11). `title`,
+    `frontmatter` must include at minimum `type` (OKF v0.3 §4.1). `title`,
     `description`, `resource`, and `tags` are strongly recommended when
     applicable. `generated` is filled in automatically: leave it unset and the
     tool records `generated: {by: reference_agent/<model>, at: <now>}`, or

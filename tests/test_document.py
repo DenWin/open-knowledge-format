@@ -86,7 +86,7 @@ def test_validate_rejects_missing_type():
 
 
 def test_validate_accepts_type_only():
-    # OKF v0.2 §11: `type` is the only always-required key.
+    # OKF v0.3 §4.1: `type` is the only always-required key.
     OKFDocument(frontmatter={"type": "X"}).validate()
 
 
@@ -111,6 +111,29 @@ def test_trust_tier():
     ) == "human-reviewed"
     # A bare mapping is treated as a one-element list.
     assert trust_tier({"verified": {"by": "human:ahormati", "at": "z"}}) == "human-reviewed"
+    # An event without both `by` and `at` is ignored.
+    assert trust_tier({"verified": {"by": "human:ahormati"}}) == "unverified"
+
+
+def test_trust_tier_uses_only_current_events():
+    generated = {"by": "reference_agent/x", "at": "2026-06-20T14:00:00Z"}
+    human_before = {"by": "human:ahormati", "at": "2026-06-01T09:00:00Z"}
+    human_same = {"by": "human:ahormati", "at": "2026-06-20T14:00:00Z"}
+    process_after = {"by": "process:nightly", "at": "2026-06-21T02:00:00+00:00"}
+    # A review before the last change is history, not a current event (v0.3 §5.3).
+    assert trust_tier({"generated": generated, "verified": [human_before]}) == "unverified"
+    assert trust_tier(
+        {"generated": generated, "verified": [human_before, process_after]}
+    ) == "machine-confirmed"
+    assert trust_tier({"generated": generated, "verified": [human_same]}) == "human-reviewed"
+    # Date-only and YAML-native timestamps compare as instants.
+    assert trust_tier(
+        {"generated": {"by": "a/b", "at": "2026-06-20"}, "verified": {"by": "human:a", "at": date(2026, 6, 20)}}
+    ) == "human-reviewed"
+    # A timestamp that does not parse cannot make an event current.
+    assert trust_tier(
+        {"generated": generated, "verified": {"by": "human:ahormati", "at": "soon"}}
+    ) == "unverified"
 
 
 def test_is_stale():
