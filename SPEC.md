@@ -8,8 +8,6 @@ The format is intentionally minimal: a directory of Markdown files with YAML fro
 
 This document is self-contained. It specifies all that is necessary to produce and consume OKF v0.3. §13 gives a summary of the changes from v0.2. Appendix B gives a summary of the changes from v0.1 to v0.2.
 
-The key words `MUST`, `MUST NOT`, `REQUIRED`, `SHOULD`, `SHOULD NOT`, `RECOMMENDED`, and `MAY` have the meaning that RFC 2119 gives them.
-
 ---
 
 ## 1. Motivation
