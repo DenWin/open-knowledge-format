@@ -1,6 +1,6 @@
 # Open Knowledge Format (OKF)
 
-**Version 0.3 (draft)**
+**Version 0.3**
 
 OKF is an open format for *knowledge*: the metadata, context, and curated insight about data and systems. People and agents can read it. People write it, agents generate it, organizations exchange it, and people and agents consume it.
 
