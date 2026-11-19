@@ -14,7 +14,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 import urllib.parse
 
-from okf_adoc_core import discover
+try:
+    from okf_adoc_core import discover
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from okf_adoc_core import discover
 
 
 def load_base() -> object:

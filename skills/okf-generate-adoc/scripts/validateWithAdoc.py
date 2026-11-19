@@ -11,7 +11,14 @@ import sys
 from pathlib import Path
 from datetime import datetime, timezone
 
-from okf_adoc_core import PROFILE, discover, resolve_target, split_frontmatter, sync_attributes, targets
+try:
+    from okf_adoc_core import PROFILE, discover, resolve_target, split_frontmatter, sync_attributes, targets
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from okf_adoc_core import PROFILE, discover, resolve_target, split_frontmatter, sync_attributes, targets
+
+SOURCE_FOOTNOTE_RE = re.compile(r"(?<!\\)\bfootnote:([A-Za-z0-9_.-]+)\[")
+FOOTNOTEREF_RE = re.compile(r"(?<!\\)\bfootnoteref:\[([^\]]+)\]")
 
 
 def load_base() -> object:
@@ -62,20 +69,57 @@ def find_target(root: Path, source: Path, target: str) -> Path | None:
     return None
 
 
+def check_footnotes(checker: object, path: Path, body: str, body_line: int, source_ids: set[str]) -> None:
+    declared = set()
+    references = []
+    for offset, line in enumerate(body.splitlines()):
+        number = body_line + offset
+        for match in SOURCE_FOOTNOTE_RE.finditer(line):
+            source_id = match.group(1)
+            declared.add(source_id)
+            if source_id not in source_ids:
+                checker.warn(path, number, "A120", f"AsciiDoc footnote source ID {source_id!r} has no sources entry")
+        references.extend((match.group(1), number) for match in FOOTNOTEREF_RE.finditer(line))
+    for identifier, number in references:
+        if identifier not in declared:
+            checker.warn(path, number, "A121", f"footnoteref {identifier!r} has no preceding footnote definition")
+
+
 def add_adoc_findings(checker: object, root: Path, base: object) -> None:
     concepts, collisions = discover(root)
+    all_adoc = []
+    for candidate in sorted(root.rglob("*.adoc")):
+        relative = candidate.relative_to(root)
+        if candidate.is_symlink() or any(part.startswith(".") for part in relative.parts) or not candidate.is_file():
+            continue
+        try:
+            candidate.resolve().relative_to(root)
+        except ValueError:
+            continue
+        all_adoc.append(candidate)
     for identifier, paths in collisions.items():
         checker.error(root, None, "E130", f"ambiguous concept ID {identifier!r} exists at: {', '.join(paths)}")
     concept_paths = {item.path.resolve() for item in concepts if item.format == "asciidoc" and item.metadata.get("type")}
+    discovered_paths = {item.path.resolve() for item in concepts if item.format == "asciidoc"}
+    included_partials = set()
+    for candidate in all_adoc:
+        _, candidate_body, _, _ = split_frontmatter(candidate.read_text(encoding="utf-8"))
+        for kind, target, _ in targets(candidate_body):
+            if kind == "include":
+                resolved = resolve_target(root, candidate, target)
+                if resolved is not None:
+                    included_partials.add(resolved)
     for item in concepts:
         if item.format != "asciidoc":
             continue
         path = item.path
         checker.files_checked += 1
         text = path.read_text(encoding="utf-8")
-        metadata, body, error, body_line = split_frontmatter(text)
-        if error:
-            checker.warn(path, 1, "W120", f"not a concept: {error}")
+        state, metadata, body, body_line = checker.frontmatter(path, text.lstrip(base.BOM))
+        if state == "absent":
+            checker.warn(path, 1, "W120", "not a concept: the file has no frontmatter (section 3.2)")
+            continue
+        if state != "ok":
             continue
         concept_type = metadata.get("type")
         if not isinstance(concept_type, str) or not concept_type.strip():
@@ -86,7 +130,7 @@ def add_adoc_findings(checker: object, root: Path, base: object) -> None:
         checker.check_lifecycle(path, metadata)
         generated_at = checker.check_generated(path, metadata)
         checker.check_verified(path, metadata, generated_at)
-        checker.check_sources(path, metadata)
+        source_ids = checker.check_sources(path, metadata)
         checker.check_stale_after(path, metadata)
         for field in ("resource", "superseded_by", "computation"):
             if not base.blank(metadata.get(field)):
@@ -99,8 +143,24 @@ def add_adoc_findings(checker: object, root: Path, base: object) -> None:
                 checker.warn(path, body_line, "W112", "no computation: no computation field and no source block in a Computation section")
             elif base.blank(metadata.get("computation")) and count > 1:
                 checker.warn(path, body_line, "W112", f"put exactly one source block in the Computation section; found {count}")
+            elif not base.blank(metadata.get("computation")) and count:
+                checker.warn(path, body_line, "W112", "with a computation field, do not also put a source block in the Computation section")
+            for index, parameter in enumerate(base.as_list(metadata.get("parameters"))):
+                if not isinstance(parameter, dict) or base.blank(parameter.get("name")) or base.blank(parameter.get("type")):
+                    checker.warn(path, 1, "W113", f"parameters[{index}] needs name and type (section 10.2)")
+            for key in ("executor", "attester"):
+                value = metadata.get(key)
+                if base.blank(value):
+                    continue
+                if not isinstance(value, dict) or base.blank(value.get("resource")):
+                    checker.warn(path, 1, "W114", f"{key} is a mapping with a resource field (section 10.2)")
+                    continue
+                if key == "executor" and not isinstance(value.get("receipt"), list):
+                    checker.warn(path, 1, "W114", "executor.receipt lists the fields that a run returns (section 10.2)")
+                checker.check_path_field(path, f"{key}.resource", value.get("resource"))
             if base.blank(metadata.get("attester")):
                 checker.info(path, 1, "I205", "without an attester, consumers cannot show values from this computation as attested")
+        check_footnotes(checker, path, body, body_line, source_ids)
 
         attribute_result = sync_attributes(text, metadata, item.concept_id)
         if attribute_result.state != "ok":
@@ -109,7 +169,16 @@ def add_adoc_findings(checker: object, root: Path, base: object) -> None:
             for finding in attribute_result.findings:
                 checker.add(path, finding.line or 1, finding.level, "A102", finding.message)
 
+        unknown = sorted(
+            str(key) for key in metadata
+            if str(key) not in base.KNOWN_KEYS and not str(key).startswith("x-")
+        )
+        if unknown:
+            checker.info(path, 1, "I203", f"extension keys without the x- prefix: {', '.join(unknown)} (section 4.1)")
+
         for kind, target, line in targets(body):
+            if kind == "include":
+                continue
             absolute_line = body_line + line - 1
             if kind in ("xref", "shorthand") and target.startswith("/"):
                 checker.warn(path, absolute_line, "A110", f"root-relative xref {target!r} may render as a web-root URL; prefer a relative path")
@@ -129,7 +198,33 @@ def add_adoc_findings(checker: object, root: Path, base: object) -> None:
             if target_path is None:
                 checker.warn(path, absolute_line, "A112", f"{kind} target {target!r} is not in the bundle or is ambiguous")
                 continue
-            if kind == "include" and target_path.resolve() in concept_paths:
+    for path in all_adoc:
+        resolved_source = path.resolve()
+        if resolved_source in discovered_paths:
+            text = path.read_text(encoding="utf-8")
+            _, body, _, body_line = split_frontmatter(text)
+        else:
+            text = path.read_text(encoding="utf-8")
+            _, body, _, body_line = split_frontmatter(text)
+            if resolved_source not in included_partials:
+                checker.files_checked += 1
+                checker.warn(path, 1, "W120", "not a concept: the file has no OKF frontmatter (section 3.2)")
+        for kind, target, line in targets(body):
+            if kind != "include":
+                continue
+            absolute_line = body_line + line - 1
+            external = re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target) or target.startswith("//")
+            if external:
+                checker.error(path, absolute_line, "A111", f"include target {target!r} is not a local bundle path")
+                continue
+            resolved = resolve_target(root, path, target)
+            if resolved is None:
+                checker.error(path, absolute_line, "A111", f"include target {target!r} escapes the bundle")
+                continue
+            target_path = find_target(root, path, target)
+            if target_path is None:
+                checker.warn(path, absolute_line, "A112", f"include target {target!r} is not in the bundle")
+            elif target_path.resolve() in concept_paths:
                 checker.error(path, absolute_line, "A113", f"include target {target!r} is a concept document; include partials only")
 
 

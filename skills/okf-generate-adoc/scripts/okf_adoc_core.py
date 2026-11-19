@@ -72,8 +72,18 @@ class AttributePlan:
     updated_text: str | None = None
 
 
+class StyledString(str):
+    def __new__(cls, value: str, yaml_style: str | None) -> "StyledString":
+        instance = super().__new__(cls, value)
+        instance.yaml_style = yaml_style
+        return instance
+
+
 def _safe_yaml(text: str) -> Any:
     class Loader(yaml.SafeLoader):
+        def construct_yaml_str(self, node: yaml.ScalarNode) -> StyledString:
+            return StyledString(super().construct_yaml_str(node), node.style)
+
         def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
             seen = set()
             for key_node, _ in node.value:
@@ -93,6 +103,7 @@ def _safe_yaml(text: str) -> Any:
                     )
             return super().construct_mapping(node, deep=deep)
 
+    Loader.add_constructor("tag:yaml.org,2002:str", Loader.construct_yaml_str)
     Loader.yaml_implicit_resolvers = {
         key: [
             resolver
@@ -254,8 +265,13 @@ def attribute_plan(
         if source == "tags":
             converted = _tag_value(value)
         elif source == "description":
-            # YAML block scalars commonly retain one trailing newline.
-            if isinstance(value, str) and value.endswith("\n"):
+            # Remove only the final newline introduced by block-scalar
+            # chomping; explicit newlines in quoted/plain values are data.
+            if (
+                isinstance(value, str)
+                and value.endswith("\n")
+                and getattr(value, "yaml_style", None) in ("|", ">")
+            ):
                 value = value[:-1]
             converted = _attribute_string(value)
         else:

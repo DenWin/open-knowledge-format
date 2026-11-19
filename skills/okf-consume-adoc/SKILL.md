@@ -1,6 +1,10 @@
 ---
 name: okf-consume-adoc
 description: Read and answer from standard OKF v0.3 plus explicitly selected okf-adoc/1.0 bundles, preserving provenance, trust, lifecycle, freshness, and attestation distinctions.
+license: Apache-2.0
+metadata:
+  version: "0.1.0"
+  publisher: google
 ---
 
 # Consume OKF with the AsciiDoc profile

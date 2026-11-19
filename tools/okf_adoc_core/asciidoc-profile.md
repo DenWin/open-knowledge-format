@@ -92,7 +92,10 @@ header. Attribute-only changes do not update `generated.at`.
 Provenance, actors, lifecycle status (`draft`, `stable`, `deprecated`),
 verification history, trust, staleness, and attestation retain their OKF v0.3
 meaning. AsciiDoc footnotes may attribute source material but do not replace
-the canonical `sources` metadata. Attested computations are discovered in
+the canonical `sources` metadata. A source-citing footnote uses
+`footnote:<source-id>[citation]` where `<source-id>` matches `sources[].id`;
+an unlabelled `footnote:[text]` is prose, not machine-readable provenance.
+`footnoteref:[id]` must refer to a preceding named footnote. Attested computations are discovered in
 AsciiDoc source blocks in the `Computation` section or by the canonical
 `computation` file reference. YAML declarations alone do not prove execution,
 verification, or attestation.

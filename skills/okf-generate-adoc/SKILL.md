@@ -1,6 +1,10 @@
 ---
 name: okf-generate-adoc
 description: Create, update, migrate, and validate OKF v0.3 bundles using the opt-in okf-adoc/1.0 profile. Use for AsciiDoc concepts or explicit extended-profile selection; never infer profile from .adoc files alone.
+license: Apache-2.0
+metadata:
+  version: "0.1.0"
+  publisher: google
 ---
 
 # Generate OKF with the AsciiDoc profile

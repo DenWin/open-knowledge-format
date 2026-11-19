@@ -13,7 +13,11 @@ import json
 import sys
 from pathlib import Path
 
-from okf_adoc_core import split_frontmatter, sync_attributes
+try:
+    from okf_adoc_core import discover, split_frontmatter, sync_attributes
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from okf_adoc_core import discover, split_frontmatter, sync_attributes
 
 
 def read_text(path: Path) -> str:
@@ -22,6 +26,8 @@ def read_text(path: Path) -> str:
 
 
 def get_files(target: Path) -> tuple[Path, list[Path]]:
+    if target.is_symlink():
+        raise ValueError(f"{target} is a symlink; refusing to synchronize through it")
     resolved = target.resolve()
     if resolved.is_file():
         return resolved.parent, [resolved]
@@ -61,6 +67,8 @@ def main(argv: list[str] | None = None) -> int:
         key, mapping = entry.split("=", 1)
         old, new = mapping.split(":", 1)
         value_mappings.setdefault(key, {})[old] = new
+    _, collisions = discover(root)
+    collision_paths = {path for paths in collisions.values() for path in paths}
     results = []
     failed = False
     for path in files:
@@ -73,13 +81,34 @@ def main(argv: list[str] | None = None) -> int:
                             "diagnostics": [{"code": "path-escape", "message": "file is outside bundle root"}]})
             failed = True
             continue
-        text = read_text(path)
+        relative = path.relative_to(root).as_posix()
+        if relative in collision_paths:
+            results.append({
+                "path": relative,
+                "state": "conflict",
+                "diagnostics": [{
+                    "code": "identity-collision",
+                    "message": f"concept ID is ambiguous: {', '.join(next(paths for paths in collisions.values() if relative in paths))}",
+                }],
+            })
+            failed = True
+            continue
+        try:
+            text = read_text(path)
+        except (OSError, UnicodeError) as exc:
+            results.append({
+                "path": relative,
+                "state": "unsupported",
+                "diagnostics": [{"code": "read-error", "message": str(exc)}],
+            })
+            failed = True
+            continue
         metadata, _, error, _ = split_frontmatter(text)
         if error == "frontmatter is absent":
-            results.append({"path": path.relative_to(root).as_posix(), "state": "not_applicable", "diagnostics": []})
+            results.append({"path": relative, "state": "not_applicable", "diagnostics": []})
             continue
         if error:
-            results.append({"path": path.relative_to(root).as_posix(), "state": "unsupported",
+            results.append({"path": relative, "state": "unsupported",
                             "diagnostics": [{"code": "frontmatter-error", "message": error}]})
             failed = True
             continue
@@ -95,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             value_mappings=value_mappings,
         )
         result = {
-            "path": path.relative_to(root).as_posix(),
+            "path": relative,
             "state": plan.state,
             "diagnostics": [finding.__dict__ for finding in plan.findings],
         }
@@ -107,14 +136,19 @@ def main(argv: list[str] | None = None) -> int:
                 tofile=str(path) + " (proposed)",
             ))
         if args.write and plan.updated_text is not None and plan.updated_text != text:
-            with path.open("w", encoding="utf-8", newline="") as stream:
-                stream.write(plan.updated_text)
-            result["written"] = True
+            try:
+                with path.open("w", encoding="utf-8", newline="") as stream:
+                    stream.write(plan.updated_text)
+                result["written"] = True
+            except OSError as exc:
+                result["state"] = "unsupported"
+                result["diagnostics"].append({"code": "write-error", "message": str(exc)})
+                failed = True
         results.append(result)
         if args.check:
             failed |= plan.state not in ("ok", "not_applicable")
         if args.write:
-            failed |= plan.state == "unsupported"
+            failed |= plan.state in ("unsupported", "conflict")
     print(json.dumps({"files": results}, ensure_ascii=False, indent=2))
     return 1 if failed and args.check else (2 if failed and args.write else 0)
 

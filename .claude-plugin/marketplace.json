@@ -1,6 +1,6 @@
 {
   "name": "open-knowledge-format",
-  "description": "Open Knowledge Format skills for standard Markdown bundles and the opt-in okf-adoc/1.0 profile, plus the okf-adoption agent.",
+  "description": "Open Knowledge Format skills for standard Markdown bundles and the opt-in okf-adoc/1.0 profile, with adoption guidance.",
   "owner": {
     "name": "Open Knowledge Format contributors"
   },
@@ -8,7 +8,7 @@
     {
       "name": "okf",
       "source": "./skills",
-      "description": "Open Knowledge Format skills for standard Markdown bundles and the opt-in okf-adoc/1.0 profile, plus the okf-adoption agent.",
+      "description": "Open Knowledge Format skills for standard Markdown bundles and the opt-in okf-adoc/1.0 profile, with adoption guidance.",
       "version": "0.1.0",
       "author": {
         "name": "Open Knowledge Format contributors"

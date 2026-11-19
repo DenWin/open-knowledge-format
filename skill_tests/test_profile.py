@@ -31,10 +31,15 @@ def test_discovery_reports_collisions_and_ignores_asset_extensions(tmp_path: Pat
 
 def test_tag_encoding_and_description_conversion():
     expected, findings = attribute_plan(
-        {"tags": ["alpha", "with,comma", 'with"quote'], "description": "one sentence\n"},
-        "metrics/a",
+        {"tags": ["alpha", "with,comma", 'with"quote']}, "metrics/a"
     )
     assert expected["okf-tags"] == 'alpha,"with,comma","with""quote"'
+    assert not findings
+    metadata, _, error, _ = split_frontmatter(
+        "---\ndescription: |\n  one sentence\n---\n"
+    )
+    assert error is None
+    expected, findings = attribute_plan(metadata, "metrics/a")
     assert expected["okf-description"] == "one sentence"
     assert not findings
     expected, findings = attribute_plan({"tags": "one,two", "description": "first\nsecond"}, "a")
@@ -45,6 +50,12 @@ def test_tag_encoding_and_description_conversion():
 
 def test_absent_optional_metadata_is_not_materialized():
     expected, findings = attribute_plan({}, "metric/a")
+    assert expected == {"okf-concept-id": "metric/a"}
+    assert not findings
+    expected, findings = attribute_plan(
+        {"type": None, "title": None, "description": None, "status": None, "tags": None},
+        "metric/a",
+    )
     assert expected == {"okf-concept-id": "metric/a"}
     assert not findings
 
@@ -60,6 +71,18 @@ def test_legacy_status_requires_explicit_value_mapping():
     )
     assert expected["okf-status"] == "stable"
     assert any(item.code == "explicit-value-mapping" for item in findings)
+
+
+def test_extension_attributes_require_explicit_reproducible_mapping():
+    expected, findings = attribute_plan({"x-label": "Owner"}, "metric/a")
+    assert "okf-x-label" not in expected
+    expected, findings = attribute_plan(
+        {"x-label": "Owner"},
+        "metric/a",
+        mappings={"x-label": "okf-x-label"},
+    )
+    assert expected["okf-x-label"] == "Owner"
+    assert not findings
 
 
 def test_header_allows_titleless_and_rejects_late_title():

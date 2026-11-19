@@ -77,6 +77,62 @@ def test_scanner_reports_all_collision_paths_without_winner(tmp_path):
     assert data["concepts"] == []
 
 
+def test_cross_format_links_fragments_and_includes_resolve(tmp_path):
+    bundle = tmp_path / "bundle"
+    (bundle / "pages").mkdir(parents=True)
+    (bundle / "tables").mkdir()
+    (bundle / "index.md").write_text('---\nokf_version: "0.3"\n---\n', encoding="utf-8")
+    (bundle / "pages" / "guide.md").write_text(
+        "---\ntype: Reference\n---\n"
+        "[AsciiDoc](../tables/schema.adoc) [Markdown](../tables/details.md)\n",
+        encoding="utf-8",
+    )
+    (bundle / "tables" / "schema.adoc").write_text(
+        "---\ntype: Table\n---\n= Schema\n\n"
+        "link:details.md[details] xref:details.md#fields[] "
+        "xref:#local[] <<#local>> <<schema.adoc#fields>> "
+        "\\xref:missing.adoc[] include::partial.adoc[]\n",
+        encoding="utf-8",
+    )
+    (bundle / "tables" / "details.md").write_text(
+        "---\ntype: Reference\n---\n# Details\n", encoding="utf-8"
+    )
+    (bundle / "tables" / "partial.adoc").write_text("Included partial.\n", encoding="utf-8")
+    result = run(
+        "skills/okf-generate-adoc/scripts/validateWithAdoc.py",
+        str(bundle), "--json", "--now", "2026-01-01T00:00:00Z",
+    )
+    data = json.loads(result.stdout)
+    codes = {finding["code"] for finding in data["findings"]}
+    assert not {"A111", "A112", "A113"} & codes
+
+
+def test_asciidoc_computations_and_source_footnotes_are_discovered(tmp_path):
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "index.md").write_text('---\nokf_version: "0.3"\n---\n', encoding="utf-8")
+    (bundle / "calc.adoc").write_text(
+        "---\ntype: Attested Computation\nruntime: python\n"
+        "sources:\n  - id: source-1\n    resource: https://example.test/source\n"
+        "---\n= Calculation\n\n"
+        "== Computation\n[source,sql]\n----\nselect 1\n----\n"
+        "Source note footnote:source-1[dataset] and footnote:missing[unknown]. "
+        "footnoteref:[unknown-ref]\n",
+        encoding="utf-8",
+    )
+    result = run(
+        "skills/okf-generate-adoc/scripts/validateWithAdoc.py",
+        str(bundle), "--json", "--now", "2026-01-01T00:00:00Z",
+    )
+    data = json.loads(result.stdout)
+    findings = [finding for finding in data["findings"] if finding["path"] == "calc.adoc"]
+    codes = {finding["code"] for finding in findings}
+    assert "A120" in codes
+    assert "A121" in codes
+    assert "W112" not in codes
+    assert "I205" in codes
+
+
 def test_attribute_cli_is_read_only_until_write_and_write_is_idempotent(tmp_path):
     document = tmp_path / "x.adoc"
     original = (
@@ -109,17 +165,73 @@ def test_attribute_cli_is_read_only_until_write_and_write_is_idempotent(tmp_path
 
 
 def test_extended_skill_tools_run_without_other_skill_directories(tmp_path):
-    scripts = ROOT / "skills/okf-consume-adoc/scripts"
-    copied = tmp_path / "scripts"
-    shutil.copytree(scripts, copied)
     bundle = tmp_path / "bundle"
     bundle.mkdir()
     (bundle / "m.adoc").write_text(
         "---\ntype: Metric\n---\n= Metric\n\nBody\n", encoding="utf-8"
     )
+    copied = tmp_path / "consume-scripts"
+    shutil.copytree(ROOT / "skills/okf-consume-adoc/scripts", copied)
     result = subprocess.run(
         ["python3", str(copied / "scanWithAdoc.py"), str(bundle), "--json"],
         cwd=tmp_path, capture_output=True, text=True,
     )
     assert result.returncode == 0
     assert json.loads(result.stdout)["concepts"][0]["format"] == "asciidoc"
+    validation = subprocess.run(
+        ["python3", str(copied / "validateWithAdoc.py"), str(bundle), "--json"],
+        cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert validation.returncode == 0
+    generate_scripts = tmp_path / "generate-scripts"
+    shutil.copytree(ROOT / "skills/okf-generate-adoc/scripts", generate_scripts)
+    sync = subprocess.run(
+        ["python3", str(generate_scripts / "syncAttributes.py"), str(bundle / "m.adoc"), "--dry-run"],
+        cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert sync.returncode == 0
+    assert json.loads(sync.stdout)["files"][0]["state"] == "missing"
+
+
+def test_attribute_write_refuses_cross_format_id_collision(tmp_path):
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    adoc = bundle / "a.adoc"
+    adoc.write_text("---\ntype: Metric\n---\n= A\n\n", encoding="utf-8")
+    markdown = bundle / "a.adoc.md"
+    markdown.write_text("---\ntype: Metric\n---\n# A\n", encoding="utf-8")
+    original = adoc.read_bytes()
+    result = subprocess.run(
+        [
+            "python3",
+            str(ROOT / "skills/okf-generate-adoc/scripts/syncAttributes.py"),
+            str(bundle),
+            "--write",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    data = json.loads(result.stdout)
+    assert result.returncode == 2
+    assert all(item["state"] == "conflict" for item in data["files"])
+    assert adoc.read_bytes() == original
+    assert markdown.read_text(encoding="utf-8").startswith("---")
+
+
+def test_sync_refuses_symlink_inputs(tmp_path):
+    target = tmp_path / "outside.adoc"
+    target.write_text("---\ntype: Metric\n---\n= A\n\n", encoding="utf-8")
+    link = tmp_path / "link.adoc"
+    link.symlink_to(target)
+    result = subprocess.run(
+        [
+            "python3",
+            str(ROOT / "skills/okf-generate-adoc/scripts/syncAttributes.py"),
+            str(link),
+            "--write",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert target.read_text(encoding="utf-8").endswith("= A\n\n")

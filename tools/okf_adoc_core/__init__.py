@@ -5,11 +5,15 @@ from .profile import (
     Concept,
     Finding,
     Header,
+    PROFILE,
     attribute_plan,
     detect_profile,
     discover,
     parse_header,
+    resolve_target,
+    split_frontmatter,
     sync_attributes,
+    targets,
 )
 
 __all__ = [
@@ -17,9 +21,13 @@ __all__ = [
     "Concept",
     "Finding",
     "Header",
+    "PROFILE",
     "attribute_plan",
     "detect_profile",
     "discover",
     "parse_header",
+    "resolve_target",
+    "split_frontmatter",
     "sync_attributes",
+    "targets",
 ]
