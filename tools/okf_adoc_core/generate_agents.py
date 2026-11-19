@@ -21,7 +21,7 @@ def copilot(source: str) -> str:
     return (
         "---\nname: okf-adoption\n"
         "description: Plan and safely adopt, migrate, or maintain repositories as OKF v0.3 or the opt-in okf-adoc/1.0 profile.\n"
-        "tools: [read, edit, search]\n"
+        "tools: [read, edit, search, agent]\n"
         "---\n\n" + body(source)
     )
 
@@ -30,7 +30,7 @@ def claude(source: str) -> str:
     return (
         "---\nname: okf-adoption\n"
         "description: Plan and safely adopt, migrate, or maintain repositories as OKF v0.3 or the opt-in okf-adoc/1.0 profile.\n"
-        "tools: Read, Edit, Glob, Grep\n"
+        "tools: Read, Edit, Glob, Grep, Skill\n"
         "---\n\n" + body(source)
     )
 

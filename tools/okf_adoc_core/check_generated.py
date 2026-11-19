@@ -3,7 +3,7 @@
 
 from pathlib import Path
 
-from generate_agents import claude
+from generate_agents import claude, copilot
 
 ROOT = Path(__file__).resolve().parents[2]
 CANONICAL = ROOT / "tools/okf_adoc_core"
@@ -35,10 +35,14 @@ def main() -> int:
     expected_agent = claude((CANONICAL / "okf-adoption.agent.md").read_text(encoding="utf-8"))
     if not claude_agent.is_file() or claude_agent.read_text(encoding="utf-8") != expected_agent:
         failures.append("skills/agents/okf-adoption.md is out of sync with the canonical agent")
+    copilot_agent = ROOT / ".github/agents/okf-adoption.agent.md"
+    expected_agent = copilot((CANONICAL / "okf-adoption.agent.md").read_text(encoding="utf-8"))
+    if not copilot_agent.is_file() or copilot_agent.read_text(encoding="utf-8") != expected_agent:
+        failures.append(".github/agents/okf-adoption.agent.md is out of sync with the canonical agent")
     if failures:
         print("\n".join(failures))
         return 1
-    print("Generated AsciiDoc skills match canonical sources.")
+    print("Generated skills and agent files match canonical sources.")
     return 0
 
 

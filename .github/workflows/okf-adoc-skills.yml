@@ -26,5 +26,7 @@ jobs:
       - name: Check generated payloads
         run: |
           python tools/okf_adoc_core/check_generated.py
+          python tools/okf_adoc_core/generate_agents.py --target copilot
+          git diff --exit-code -- .github/agents/okf-adoption.agent.md
       - name: Run dependency-light skill suite
         run: python -m pytest -q skill_tests
