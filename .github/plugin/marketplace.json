@@ -1,0 +1,18 @@
+{
+  "name": "open-knowledge-format",
+  "metadata": {
+    "description": "Open Knowledge Format skills and adoption agent for GitHub Copilot.",
+    "version": "1.0.0"
+  },
+  "owner": {
+    "name": "Open Knowledge Format contributors"
+  },
+  "plugins": [
+    {
+      "name": "okf",
+      "description": "Open Knowledge Format skills for standard Markdown bundles and the opt-in okf-adoc/1.0 profile, with adoption guidance.",
+      "version": "0.1.0",
+      "source": "plugins/okf"
+    }
+  ]
+}

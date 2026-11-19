@@ -276,13 +276,21 @@ header, path-resolution, and metadata rules. Both extended skills contain
 their own read-only scanner and validator; only the generation skill includes
 the authorized attribute synchronizer.
 
-Install the skills as a plugin in Claude Code, Codex, or Antigravity:
+Install the skills as a plugin in GitHub Copilot CLI, Claude Code, Codex, or Antigravity:
 
 | Tool | Install |
 |---|---|
+| GitHub Copilot CLI | `copilot plugin marketplace add DenWin/open-knowledge-format`, then `copilot plugin install okf@open-knowledge-format` |
 | Claude Code | `/plugin marketplace add open-knowledge-format/open-knowledge-format`, then `/plugin install okf@open-knowledge-format` |
 | Codex CLI | `codex plugin marketplace add open-knowledge-format/open-knowledge-format`, then `codex plugin add okf@open-knowledge-format` |
 | Antigravity CLI 1.3.2 or later | `agy plugin install https://github.com/open-knowledge-format/open-knowledge-format` |
+
+For Copilot CLI, the repository marketplace catalog is
+`.github/plugin/marketplace.json`; it points to the Agent Plugins 1.0 bundle in
+`plugins/okf/`. That bundle contains the four skills and the Copilot-specific
+`okf-adoption` agent. The repository-level custom agent at
+`.github/agents/okf-adoption.agent.md` can also be used without installing the
+plugin.
 
 A tool without plugin support can load a skill from its skills directory. Copy
 a folder from `skills/` to `~/.agents/skills/` for the Codex IDE extension, or
@@ -292,14 +300,15 @@ to `~/.gemini/config/skills/` for the Antigravity app and IDE.
 
 The canonical agent instructions live at
 [`tools/okf_adoc_core/okf-adoption.agent.md`](tools/okf_adoc_core/okf-adoption.agent.md).
-The Copilot custom agent is discovered from
-`.github/agents/okf-adoption.agent.md`.
-The Claude Code plugin target is generated at
+Generated agent files are placed at `.github/agents/okf-adoption.agent.md`
+for repository-level Copilot discovery, `plugins/okf/com.github.copilot/agents/`
+for the Copilot plugin, and
 [`skills/agents/okf-adoption.md`](skills/agents/okf-adoption.md). Generate
-target-specific agent files with
-`python3 tools/okf_adoc_core/generate_agents.py --target claude` or
-`--target copilot`. Codex plugin installation includes the skills; current
-plugin packaging does not provide a separate agent-file component.
+target-specific files with `python3 tools/okf_adoc_core/generate_agents.py
+--target all`, and regenerate the Copilot bundle with
+`python3 tools/okf_adoc_core/generate_copilot_plugin.py`. The
+`skills/agents/okf-adoption.md` file is a Claude Code plugin agent component,
+not an additional Agent Skill.
 
 The canonical AsciiDoc module and distributed copies are maintained with
 `python3 tools/okf_adoc_core/generate_vendored.py`. Run

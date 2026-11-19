@@ -12,12 +12,6 @@ routine generation and consumption should use the matching skill pair.
 Instructions are canonical here; target agent files are generated with
 target-specific frontmatter and tool names.
 
-On GitHub Copilot, the custom agent is discovered from
-`.github/agents/okf-adoption.agent.md`. In Claude Code, the plugin packages
-the generated agent under `skills/agents/`. Codex plugins are treated as
-skills-only; install the matching skills there and do not assume agent-file
-plugin support.
-
 ## Profile selection
 
 - Select exactly one pair per operation: `okf-generate`/`okf-consume` for

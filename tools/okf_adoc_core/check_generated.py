@@ -4,6 +4,8 @@
 from pathlib import Path
 
 from generate_agents import claude, copilot
+import json
+from generate_copilot_plugin import PLUGIN_MANIFEST, SKILLS
 
 ROOT = Path(__file__).resolve().parents[2]
 CANONICAL = ROOT / "tools/okf_adoc_core"
@@ -39,6 +41,37 @@ def main() -> int:
     expected_agent = copilot((CANONICAL / "okf-adoption.agent.md").read_text(encoding="utf-8"))
     if not copilot_agent.is_file() or copilot_agent.read_text(encoding="utf-8") != expected_agent:
         failures.append(".github/agents/okf-adoption.agent.md is out of sync with the canonical agent")
+    plugin_manifest = ROOT / "plugins/okf/plugin.json"
+    if not plugin_manifest.is_file() or json.loads(plugin_manifest.read_text(encoding="utf-8")) != PLUGIN_MANIFEST:
+        failures.append("plugins/okf/plugin.json is out of sync with the Copilot plugin manifest")
+    for skill in SKILLS:
+        source = ROOT / "skills" / skill
+        bundled = ROOT / "plugins/okf/skills" / skill
+        if not bundled.is_dir():
+            failures.append(f"plugins/okf/skills/{skill} is missing")
+            continue
+        source_files = {
+            p.relative_to(source)
+            for p in source.rglob("*")
+            if p.is_file() and "__pycache__" not in p.parts and p.suffix not in {".pyc", ".pyo"}
+        }
+        bundled_files = {p.relative_to(bundled) for p in bundled.rglob("*") if p.is_file()}
+        if source_files != bundled_files:
+            failures.append(f"plugins/okf/skills/{skill} file set differs from skills/{skill}")
+        for relative in source_files & bundled_files:
+            if (source / relative).read_bytes() != (bundled / relative).read_bytes():
+                failures.append(f"plugins/okf/skills/{skill}/{relative} differs from skills/{skill}/{relative}")
+    bundled_agent = ROOT / "plugins/okf/com.github.copilot/agents/okf-adoption.agent.md"
+    if not bundled_agent.is_file() or not copilot_agent.is_file() or bundled_agent.read_bytes() != copilot_agent.read_bytes():
+        failures.append("Copilot plugin agent differs from .github/agents/okf-adoption.agent.md")
+    marketplace = ROOT / ".github/plugin/marketplace.json"
+    if marketplace.is_file():
+        catalog = json.loads(marketplace.read_text(encoding="utf-8"))
+        entry = next((item for item in catalog.get("plugins", []) if item.get("name") == "okf"), None)
+        if not entry or entry.get("source") != "plugins/okf":
+            failures.append(".github/plugin/marketplace.json must publish the local plugins/okf bundle")
+    else:
+        failures.append(".github/plugin/marketplace.json is missing")
     if failures:
         print("\n".join(failures))
         return 1
