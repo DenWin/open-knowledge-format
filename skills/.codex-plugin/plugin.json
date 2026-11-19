@@ -1,7 +1,7 @@
 {
   "name": "okf",
   "version": "0.1.0",
-  "description": "Agent skills for the Open Knowledge Format (OKF): write OKF bundles from sources the agent can read, and answer from bundles with provenance, trust, freshness, and attestation checks.",
+  "description": "Open Knowledge Format skills for standard Markdown bundles and the opt-in okf-adoc/1.0 profile.",
   "author": {
     "name": "Open Knowledge Format contributors",
     "url": "https://github.com/open-knowledge-format"
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "Open Knowledge Format",
     "shortDescription": "Write and read OKF knowledge bundles",
-    "longDescription": "Use okf-generate to write, update, or validate an Open Knowledge Format bundle from sources that you can read. Use okf-consume to answer questions from a bundle and to report the trust tier, freshness, and attestation status of each concept that the answer uses.",
+    "longDescription": "Use okf-generate and okf-consume for standard Markdown-only OKF v0.3 bundles. Use okf-generate-adoc and okf-consume-adoc for explicitly selected okf-adoc/1.0 bundles. Both pairs preserve provenance, trust, freshness, and attestation distinctions.",
     "developerName": "Open Knowledge Format contributors",
     "category": "Developer Tools",
     "capabilities": [

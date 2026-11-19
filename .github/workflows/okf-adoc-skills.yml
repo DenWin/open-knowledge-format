@@ -1,0 +1,28 @@
+name: OKF AsciiDoc skills
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  skill-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.8"
+          cache: pip
+          cache-dependency-path: skill_tests/requirements.txt
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2.3"
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install -r skill_tests/requirements.txt
+          gem install asciidoctor --version 2.0.26 --no-document
+      - name: Check generated payloads
+        run: |
+          python tools/okf_adoc_core/check_generated.py
+      - name: Run dependency-light skill suite
+        run: python -m pytest -q skill_tests

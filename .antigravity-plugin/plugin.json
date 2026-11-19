@@ -2,7 +2,7 @@
   "name": "okf",
   "displayName": "Open Knowledge Format",
   "version": "0.1.0",
-  "description": "Agent skills for the Open Knowledge Format (OKF): write OKF bundles from sources the agent can read, and answer from bundles with provenance, trust, freshness, and attestation checks.",
+  "description": "Open Knowledge Format skills for standard Markdown bundles and the opt-in okf-adoc/1.0 profile.",
   "category": "Developer Tools",
   "keywords": [
     "okf",

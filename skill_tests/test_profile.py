@@ -8,6 +8,7 @@ from tools.okf_adoc_core.profile import (
     resolve_target,
     split_frontmatter,
     sync_attributes,
+    targets,
 )
 
 
@@ -48,12 +49,43 @@ def test_absent_optional_metadata_is_not_materialized():
     assert not findings
 
 
+def test_legacy_status_requires_explicit_value_mapping():
+    expected, findings = attribute_plan({"status": "accepted"}, "metric/a")
+    assert "okf-status" not in expected
+    assert any(item.code == "unsupported-value" for item in findings)
+    expected, findings = attribute_plan(
+        {"status": "accepted"},
+        "metric/a",
+        value_mappings={"status": {"accepted": "stable"}},
+    )
+    assert expected["okf-status"] == "stable"
+    assert any(item.code == "explicit-value-mapping" for item in findings)
+
+
 def test_header_allows_titleless_and_rejects_late_title():
     header = parse_header(":toc:\n:okf-type: Metric\n\nBody\n")
     assert not header.findings
     late = parse_header("Body first\n\n= Late title\n:okf-type: Metric\n\n")
     assert any(item.code == "late-title" for item in late.findings)
     assert any(item.code == "missing-header" for item in late.findings)
+
+
+def test_revision_and_unrelated_header_attributes_are_preserved():
+    header = parse_header(
+        "= Title\nAuthor Name\nv1.2, 2025-01-01: Draft\n:custom.attr: keep\n\nBody\n"
+    )
+    assert any(item.code == "possible-author-line" for item in header.findings)
+    assert not any(item.level == "error" for item in header.findings)
+    assert [(name, value) for _, name, value in header.entries] == [("custom.attr", "keep")]
+
+
+def test_cross_reference_grammar_handles_local_fragments_and_paths():
+    found = list(targets("xref:#intro[] <<#details>> <<metrics/a.adoc#part, Metric>>\n"))
+    assert found == [
+        ("xref", "#intro", 1),
+        ("shorthand", "#details", 1),
+        ("shorthand", "metrics/a.adoc#part", 1),
+    ]
 
 
 def test_sync_is_idempotent_and_preserves_yaml_and_body():
@@ -96,3 +128,40 @@ def test_paths_do_not_escape_root(tmp_path: Path):
     assert resolve_target(root, source, "../../outside.adoc") is None
     (root / "escape").symlink_to(tmp_path, target_is_directory=True)
     assert resolve_target(root, source, "../escape/outside.adoc") is None
+
+
+def test_unsafe_yaml_and_duplicate_keys_are_rejected():
+    _, _, error, _ = split_frontmatter(
+        "---\ntype: !!python/object/apply:os.system ['echo unsafe']\n---\n"
+    )
+    assert error and error.startswith("invalid YAML:")
+    _, _, error, _ = split_frontmatter("---\ntype: Metric\ntype: Policy\n---\n")
+    assert error and "duplicate key" in error
+
+
+def test_unsafe_attribute_values_and_manual_namespace_entries_are_reported():
+    text = "---\ntype: Metric\ntitle: '{secret}'\n---\n:okf-manual: value\n\nBody\n"
+    metadata, _, error, _ = split_frontmatter(text)
+    assert error is None
+    plan = sync_attributes(text, metadata, "a.adoc")
+    assert plan.state == "unsupported"
+    assert any(item.code == "unsupported-value" for item in plan.findings)
+    assert plan.updated_text is None
+
+
+def test_duplicate_and_obsolete_attributes_are_visible_and_reconciled():
+    text = (
+        "---\ntype: Metric\n---\n= A\n:okf-type: Old\n:okf-type: Duplicate\n"
+        ":okf-legacy: manual\n:custom: retain\n\nBody\n"
+    )
+    metadata, _, _, _ = split_frontmatter(text)
+    checked = sync_attributes(text, metadata, "a.adoc")
+    assert checked.state == "conflict"
+    codes = {item.code for item in checked.findings}
+    assert {"duplicate-attribute", "obsolete-attribute"} <= codes
+    updated = sync_attributes(text, metadata, "a.adoc", write=True)
+    assert updated.updated_text is not None
+    assert ":okf-type: Metric\n" in updated.updated_text
+    assert updated.updated_text.count(":okf-type:") == 1
+    assert ":okf-legacy:" not in updated.updated_text
+    assert ":custom: retain\n" in updated.updated_text

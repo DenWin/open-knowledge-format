@@ -252,7 +252,7 @@ once at generation time and serialized into the file.
 ## Agent skills
 
 The [`skills/`](skills/) directory holds two [Agent Skills](https://agentskills.io)
-that teach coding agents to work with OKF:
+that teach coding agents to work with standard, Markdown-only OKF:
 
 - [`okf-generate`](skills/okf-generate/SKILL.md) writes, updates, or migrates an OKF
   bundle from sources that the agent can read, and validates the result with
@@ -260,6 +260,21 @@ that teach coding agents to work with OKF:
 - [`okf-consume`](skills/okf-consume/SKILL.md) answers questions from a bundle
   and reports the trust tier, freshness, and attestation status of each concept
   that the answer uses.
+
+The opt-in AsciiDoc profile ships a separate, self-contained skill pair:
+
+- [`okf-generate-adoc`](skills/okf-generate-adoc/SKILL.md) creates, migrates,
+  and validates OKF v0.3 bundles using `okf-adoc/1.0`.
+- [`okf-consume-adoc`](skills/okf-consume-adoc/SKILL.md) reads those bundles
+  without modifying them.
+
+The extension is not a new official OKF version. Select the profile explicitly
+or declare `okf_version: "0.3"` and `x-okf-profile: "okf-adoc/1.0"` in the
+bundle-root `index.md`; `.adoc` files alone do not select it. See
+[`asciidoc-profile.md`](tools/okf_adoc_core/asciidoc-profile.md) for identity,
+header, path-resolution, and metadata rules. Both extended skills contain
+their own read-only scanner and validator; only the generation skill includes
+the authorized attribute synchronizer.
 
 Install the skills as a plugin in Claude Code, Codex, or Antigravity:
 
@@ -272,6 +287,26 @@ Install the skills as a plugin in Claude Code, Codex, or Antigravity:
 A tool without plugin support can load a skill from its skills directory. Copy
 a folder from `skills/` to `~/.agents/skills/` for the Codex IDE extension, or
 to `~/.gemini/config/skills/` for the Antigravity app and IDE.
+
+## Adoption agent
+
+The canonical agent instructions live at
+[`tools/okf_adoc_core/okf-adoption.agent.md`](tools/okf_adoc_core/okf-adoption.agent.md).
+The Claude Code plugin target is generated at
+[`skills/agents/okf-adoption.md`](skills/agents/okf-adoption.md). Generate
+target-specific agent files with
+`python3 tools/okf_adoc_core/generate_agents.py --target claude` or
+`--target copilot`; Copilot custom agents are discovered from
+`.github/agents/`. Codex plugin installation includes the skills; an agent
+file is not generated for Codex plugins.
+
+The canonical AsciiDoc module and distributed copies are maintained with
+`python3 tools/okf_adoc_core/generate_vendored.py`. Run
+`python3 tools/okf_adoc_core/check_generated.py` to check for drift.
+
+The profile's dependency-light tests use only the packages in
+[`skill_tests/requirements.txt`](skill_tests/requirements.txt); its CI job
+also verifies actual rendering with pinned Asciidoctor 2.0.26.
 
 ## Tests
 

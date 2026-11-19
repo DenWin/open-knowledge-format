@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
-import os
 import re
-import stat
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,11 +26,12 @@ DEFAULT_ATTRIBUTES = {
     "tags": "okf-tags",
 }
 MANAGED_ATTRIBUTES = {"okf-concept-id", *DEFAULT_ATTRIBUTES.values()}
-ATTRIBUTE_RE = re.compile(r"^:([A-Za-z0-9_-]+):(?:[ \t]*(.*))?$")
+ATTRIBUTE_RE = re.compile(r"^:([A-Za-z0-9_.-]+):(?:[ \t]*(.*))?$")
 TITLE_RE = re.compile(r"^= .+\s*$")
+REVISION_RE = re.compile(r"^(?:v?\d+(?:\.\d+)*,|20\d{2}-\d{2}-\d{2}\b).*$")
 SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 MACRO_RE = re.compile(r"(?<!\\)\b(?:link|xref):([^\s\[]+)\[")
-SHORTHAND_RE = re.compile(r"(?<!\\)<<([^>,#]+)(?:#([^>,]+))?(?:,[^>]*)?>>")
+SHORTHAND_RE = re.compile(r"(?<!\\)<<([^>,#]*)(?:#([^>,]+))?(?:,[^>]*)?>>")
 INCLUDE_RE = re.compile(r"(?<!\\)\binclude::([^\s\[]+)\[")
 
 
@@ -75,7 +74,24 @@ class AttributePlan:
 
 def _safe_yaml(text: str) -> Any:
     class Loader(yaml.SafeLoader):
-        pass
+        def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+            seen = set()
+            for key_node, _ in node.value:
+                key = self.construct_object(key_node, deep=deep)
+                try:
+                    duplicate = key in seen
+                    seen.add(key)
+                except TypeError as exc:
+                    raise yaml.constructor.ConstructorError(
+                        "while constructing a mapping", node.start_mark,
+                        "found an unhashable mapping key", key_node.start_mark,
+                    ) from exc
+                if duplicate:
+                    raise yaml.constructor.ConstructorError(
+                        "while constructing a mapping", node.start_mark,
+                        f"found duplicate key {key!r}", key_node.start_mark,
+                    )
+            return super().construct_mapping(node, deep=deep)
 
     Loader.yaml_implicit_resolvers = {
         key: [
@@ -173,7 +189,7 @@ def detect_profile(root: Path, explicit: str | None = None) -> tuple[str, list[F
     if index.is_file():
         metadata, _, error, _ = split_frontmatter(index.read_text(encoding="utf-8"))
         declared = metadata.get("x-okf-profile") if not error else None
-        if declared == PROFILE:
+        if declared == PROFILE and metadata.get("okf_version") == "0.3":
             return PROFILE, []
         if declared not in (None, ""):
             return "okf-0.3", [
@@ -213,18 +229,26 @@ def attribute_plan(
     identifier: str,
     *,
     mappings: dict[str, str] | None = None,
+    value_mappings: dict[str, dict[str, str]] | None = None,
 ) -> tuple[dict[str, str], list[Finding]]:
     """Map canonical YAML values to safe native attributes, one way only."""
-    expected = {"okf-concept-id": identifier}
+    expected: dict[str, str] = {}
     findings: list[Finding] = []
+    safe_identifier = _attribute_string(identifier)
+    if safe_identifier is None:
+        findings.append(Finding("unsupported-value", "derived Concept ID cannot be represented safely as okf-concept-id"))
+    else:
+        expected["okf-concept-id"] = safe_identifier
     mapping = dict(DEFAULT_ATTRIBUTES)
     if mappings:
         mapping.update(mappings)
+    if len(set(mapping.values())) != len(mapping):
+        findings.append(Finding("invalid-mapping", "each YAML source must map to a distinct AsciiDoc attribute", "error"))
     for source, target in mapping.items():
         if not re.fullmatch(r"okf-[a-z0-9][a-z0-9-]*", target):
             findings.append(Finding("invalid-mapping", f"Invalid managed attribute name {target!r}", "error"))
             continue
-        if source not in metadata or metadata[source] is None or metadata[source] == "":
+        if source not in metadata or metadata[source] is None or metadata[source] == "" or metadata[source] == []:
             continue
         value = metadata[source]
         if source == "tags":
@@ -236,6 +260,21 @@ def attribute_plan(
             converted = _attribute_string(value)
         else:
             converted = _attribute_string(value)
+        if source == "status":
+            allowed = {"draft", "stable", "deprecated"}
+            if isinstance(value, str) and value not in allowed:
+                replacement = (value_mappings or {}).get(source, {}).get(value)
+                if replacement in allowed:
+                    converted = replacement
+                    findings.append(Finding(
+                        "explicit-value-mapping",
+                        f"status {value!r} explicitly maps to {replacement!r}",
+                        "info",
+                    ))
+                else:
+                    converted = None
+            elif not isinstance(value, str):
+                converted = None
         if converted is None:
             findings.append(Finding("unsupported-value", f"{source!r} cannot be represented safely as {target}", "warning"))
             continue
@@ -274,10 +313,10 @@ def parse_header(body: str) -> Header:
             author_or_revision = True
             findings.append(Finding("possible-author-line", "Plain text directly below the title is parsed as an author line", "warning", index + 1))
             continue
-        if title and index <= 2 and line.strip() and re.match(r"^\d{4}-\d{2}-\d{2}", line):
+        if title and index == 2 and line.strip() and REVISION_RE.match(line):
             author_or_revision = True
             continue
-        if line.startswith(":okf-"):
+        if line.casefold().startswith(":okf-"):
             findings.append(Finding("invalid-attribute", f"Invalid AsciiDoc attribute entry {line!r}", "error", index + 1))
         elif entries or title:
             findings.append(Finding("invalid-header-line", f"Unexpected content in document header: {line!r}", "error", index + 1))
@@ -294,6 +333,7 @@ def sync_attributes(
     *,
     write: bool = False,
     mappings: dict[str, str] | None = None,
+    value_mappings: dict[str, dict[str, str]] | None = None,
 ) -> AttributePlan:
     """Inspect or reconcile generated attributes without touching YAML/body."""
     bom = "\ufeff" if text.startswith("\ufeff") else ""
@@ -301,17 +341,21 @@ def sync_attributes(
     if fm_error not in (None, "frontmatter is absent"):
         return AttributePlan({}, "unsupported", [Finding("frontmatter-error", fm_error, "error")])
     header = parse_header(body)
-    expected, findings = attribute_plan(metadata, identifier, mappings=mappings)
+    expected, findings = attribute_plan(
+        metadata, identifier, mappings=mappings, value_mappings=value_mappings
+    )
     findings = header.findings + findings
     if header.findings:
+        return AttributePlan(expected, "unsupported", findings)
+    if any(f.code == "unsupported-value" for f in findings):
         return AttributePlan(expected, "unsupported", findings)
     if header.separator is None:
         findings.append(Finding("missing-separator", "Document header must be followed by an empty line", "error"))
         return AttributePlan(expected, "unsupported", findings)
-    actual: dict[str, list[tuple[int, str]]] = {}
+    actual: dict[str, list[tuple[int, str, str]]] = {}
     for index, name, value in header.entries:
-        if name.startswith("okf-"):
-            actual.setdefault(name, []).append((index, value))
+        if name.casefold().startswith("okf-"):
+            actual.setdefault(name.casefold(), []).append((index, value, name))
     errors = any(f.level == "error" for f in findings)
     if errors:
         return AttributePlan(expected, "unsupported", findings)
@@ -322,7 +366,7 @@ def sync_attributes(
             conflicts.append(Finding("duplicate-attribute", f"{name} appears more than once", "error", entries[1][0] + body_line))
         elif name not in expected:
             conflicts.append(Finding("obsolete-attribute", f"{name} has no canonical YAML source", "warning", entries[0][0] + body_line))
-        elif entries[0][1] != expected[name]:
+        elif entries[0][1] != expected[name] or entries[0][2] != name:
             conflicts.append(Finding("outdated-attribute", f"{name} differs from its canonical YAML value", "warning", entries[0][0] + body_line))
     missing = [name for name in expected if name not in actual]
     for name in missing:
@@ -344,7 +388,7 @@ def sync_attributes(
     lines = body.splitlines(keepends=True)
     sep_line_index = header.separator
     newline = "\r\n" if "\r\n" in body else "\n"
-    managed_line_idxs = {entry[0] for entry in header.entries if entry[1].startswith("okf-")}
+    managed_line_idxs = {entry[0] for entry in header.entries if entry[1].casefold().startswith("okf-")}
     replacement: list[str] = []
     for idx, line in enumerate(lines[:sep_line_index]):
         if idx in managed_line_idxs:
@@ -391,6 +435,6 @@ def targets(body: str) -> Iterable[tuple[str, str, int]]:
         for match in MACRO_RE.finditer(line):
             yield match.group(0).split(":", 1)[0], match.group(1), line_no
         for match in SHORTHAND_RE.finditer(line):
-            yield "xref", match.group(1) + (f"#{match.group(2)}" if match.group(2) else ""), line_no
+            yield "shorthand", match.group(1) + (f"#{match.group(2)}" if match.group(2) else ""), line_no
         for match in INCLUDE_RE.finditer(line):
             yield "include", match.group(1), line_no
