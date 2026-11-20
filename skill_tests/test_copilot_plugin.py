@@ -47,3 +47,11 @@ def test_generated_copilot_bundle_is_current():
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_adoption_agent_prefers_declared_available_skill_pair():
+    canonical = (
+        ROOT / "tools/okf_adoc_core/okf-adoption.agent.md"
+    ).read_text(encoding="utf-8")
+    assert "If only\n  one pair is available, use that pair." in canonical
+    assert "Prefer the extended pair" in canonical

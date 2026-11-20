@@ -300,15 +300,10 @@ to `~/.gemini/config/skills/` for the Antigravity app and IDE.
 
 The canonical agent instructions live at
 [`tools/okf_adoc_core/okf-adoption.agent.md`](tools/okf_adoc_core/okf-adoption.agent.md).
-Generated agent files are placed at `.github/agents/okf-adoption.agent.md`
-for repository-level Copilot discovery, `plugins/okf/com.github.copilot/agents/`
-for the Copilot plugin, and
-[`skills/agents/okf-adoption.md`](skills/agents/okf-adoption.md). Generate
-target-specific files with `python3 tools/okf_adoc_core/generate_agents.py
---target all`, and regenerate the Copilot bundle with
-`python3 tools/okf_adoc_core/generate_copilot_plugin.py`. The
-`skills/agents/okf-adoption.md` file is a Claude Code plugin agent component,
-not an additional Agent Skill.
+Generate target files with
+`python3 tools/okf_adoc_core/generate_agents.py --target all`, and regenerate
+the Copilot bundle with
+`python3 tools/okf_adoc_core/generate_copilot_plugin.py`.
 
 The canonical AsciiDoc module and distributed copies are maintained with
 `python3 tools/okf_adoc_core/generate_vendored.py`. Run

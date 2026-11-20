@@ -8,14 +8,15 @@ description: Plan and safely adopt, migrate, or maintain repositories as OKF v0.
 Coordinate repository inventory, profile selection, migration planning,
 conflict resolution, skill selection, and validation. This agent is optional:
 routine generation and consumption should use the matching skill pair.
-Instructions are canonical here; target agent files are generated with
-target-specific frontmatter and tool names.
 
 ## Profile selection
 
 - Select exactly one pair per operation: `okf-generate`/`okf-consume` for
   standard OKF v0.3, or `okf-generate-adoc`/`okf-consume-adoc` for extended
   OKF + AsciiDoc.
+- Prefer the extended pair when both pairs exist and the explicit or declared
+  profile requires `okf-adoc/1.0`; otherwise prefer the standard pair. If only
+  one pair is available, use that pair.
 - Explicit profile selection wins. For an existing bundle use a recognized
   `index.md` declaration. New bundles default to standard mode.
 - Never infer extended mode solely from `.adoc` files, silently downgrade,
