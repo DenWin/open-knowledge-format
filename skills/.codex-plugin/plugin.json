@@ -1,7 +1,7 @@
 {
   "name": "okf",
   "version": "0.1.0",
-  "description": "Agent skills for the Open Knowledge Format (OKF): write OKF bundles from sources the agent can read, and answer from bundles with provenance, trust, freshness, and attestation checks.",
+  "description": "Agent skills for the Open Knowledge Format (OKF): write OKF bundles from sources the agent can read, and answer from bundles with provenance, trust, freshness, and attestation checks. Includes an opt-in AsciiDoc profile.",
   "author": {
     "name": "Open Knowledge Format contributors",
     "url": "https://github.com/open-knowledge-format"
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "Open Knowledge Format",
     "shortDescription": "Write and read OKF knowledge bundles",
-    "longDescription": "Use okf-generate to write, update, or validate an Open Knowledge Format bundle from sources that you can read. Use okf-consume to answer questions from a bundle and to report the trust tier, freshness, and attestation status of each concept that the answer uses.",
+    "longDescription": "Use okf-generate to write, update, or validate an Open Knowledge Format bundle from sources that you can read. Use okf-consume to answer questions from a bundle and to report the trust tier, freshness, and attestation status of each concept that the answer uses. Separate opt-in skills support AsciiDoc bundles.",
     "developerName": "Open Knowledge Format contributors",
     "category": "Developer Tools",
     "capabilities": [

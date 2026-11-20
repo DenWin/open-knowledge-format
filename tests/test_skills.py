@@ -106,7 +106,12 @@ SKILL_DIRS = sorted(p for p in SKILLS.iterdir() if (p / "SKILL.md").is_file())
 
 
 def test_expected_skills_exist():
-    assert [p.name for p in SKILL_DIRS] == ["okf-consume", "okf-generate"]
+    assert [p.name for p in SKILL_DIRS] == [
+        "okf-consume",
+        "okf-consume-adoc",
+        "okf-generate",
+        "okf-generate-adoc",
+    ]
 
 
 @pytest.mark.parametrize("skill_dir", SKILL_DIRS, ids=lambda p: p.name)

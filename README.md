@@ -252,7 +252,7 @@ once at generation time and serialized into the file.
 ## Agent skills
 
 The [`skills/`](skills/) directory holds two [Agent Skills](https://agentskills.io)
-that teach coding agents to work with OKF:
+that teach coding agents to work with standard, Markdown-only OKF:
 
 - [`okf-generate`](skills/okf-generate/SKILL.md) writes, updates, or migrates an OKF
   bundle from sources that the agent can read, and validates the result with
@@ -261,17 +261,57 @@ that teach coding agents to work with OKF:
   and reports the trust tier, freshness, and attestation status of each concept
   that the answer uses.
 
-Install the skills as a plugin in Claude Code, Codex, or Antigravity:
+The opt-in AsciiDoc profile ships a separate, self-contained skill pair:
+
+- [`okf-generate-adoc`](skills/okf-generate-adoc/SKILL.md) creates, migrates,
+  and validates OKF v0.3 bundles using `okf-adoc/1.0`.
+- [`okf-consume-adoc`](skills/okf-consume-adoc/SKILL.md) reads those bundles
+  without modifying them.
+
+The extension is not a new official OKF version. Select the profile explicitly
+or declare `okf_version: "0.3"` and `x-okf-profile: "okf-adoc/1.0"` in the
+bundle-root `index.md`; `.adoc` files alone do not select it. See
+[`asciidoc-profile.md`](tools/okf_adoc_core/asciidoc-profile.md) for identity,
+header, path-resolution, and metadata rules. Both extended skills contain
+their own read-only scanner and validator; only the generation skill includes
+the authorized attribute synchronizer.
+
+Install the skills as a plugin in GitHub Copilot CLI, Claude Code, Codex, or Antigravity:
 
 | Tool | Install |
 |---|---|
+| GitHub Copilot CLI | `copilot plugin marketplace add DenWin/open-knowledge-format`, then `copilot plugin install okf@open-knowledge-format` |
 | Claude Code | `/plugin marketplace add open-knowledge-format/open-knowledge-format`, then `/plugin install okf@open-knowledge-format` |
 | Codex CLI | `codex plugin marketplace add open-knowledge-format/open-knowledge-format`, then `codex plugin add okf@open-knowledge-format` |
 | Antigravity CLI 1.3.2 or later | `agy plugin install https://github.com/open-knowledge-format/open-knowledge-format` |
 
+For Copilot CLI, the repository marketplace catalog is
+`.github/plugin/marketplace.json`; it points to the Agent Plugins 1.0 bundle in
+`plugins/okf/`. That bundle contains the four skills and the Copilot-specific
+`okf-adoption` agent. The repository-level custom agent at
+`.github/agents/okf-adoption.agent.md` can also be used without installing the
+plugin.
+
 A tool without plugin support can load a skill from its skills directory. Copy
 a folder from `skills/` to `~/.agents/skills/` for the Codex IDE extension, or
 to `~/.gemini/config/skills/` for the Antigravity app and IDE.
+
+## Adoption agent
+
+The canonical agent instructions live at
+[`tools/okf_adoc_core/okf-adoption.agent.md`](tools/okf_adoc_core/okf-adoption.agent.md).
+Generate target files with
+`python3 tools/okf_adoc_core/generate_agents.py --target all`, and regenerate
+the Copilot bundle with
+`python3 tools/okf_adoc_core/generate_copilot_plugin.py`.
+
+The canonical AsciiDoc module and distributed copies are maintained with
+`python3 tools/okf_adoc_core/generate_vendored.py`. Run
+`python3 tools/okf_adoc_core/check_generated.py` to check for drift.
+
+The profile's dependency-light tests use only the packages in
+[`skill_tests/requirements.txt`](skill_tests/requirements.txt); its CI job
+also verifies actual rendering with pinned Asciidoctor 2.0.26.
 
 ## Tests
 

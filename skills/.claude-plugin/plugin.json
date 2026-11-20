@@ -1,7 +1,7 @@
 {
   "name": "okf",
   "version": "0.1.0",
-  "description": "Agent skills for the Open Knowledge Format (OKF): write OKF bundles from sources the agent can read, and answer from bundles with provenance, trust, freshness, and attestation checks.",
+  "description": "Agent skills for the Open Knowledge Format (OKF): write OKF bundles from sources the agent can read, and answer from bundles with provenance, trust, freshness, and attestation checks. Includes an opt-in AsciiDoc profile.",
   "author": {
     "name": "Open Knowledge Format contributors"
   },
